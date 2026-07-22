@@ -48,6 +48,8 @@ O painel:
 - exclui fixos e telefones inválidos da fila de WhatsApp;
 - prioriza `Alta` + `Sem Site` por padrão;
 - gera rascunho local, via OpenAI ou via Gemini;
+- permite escolher tom, serviço e adicionar uma observação factual por lead;
+- estrutura a abordagem em gancho, oportunidade e pergunta de baixo atrito;
 - permite revisar e editar todo texto;
 - abre `wa.me` com a mensagem preenchida, sem clicar em enviar;
 - registra rascunhos, contatos, ignorados e bloqueados em SQLite;
