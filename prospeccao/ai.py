@@ -15,7 +15,12 @@ class MensagemGerada:
     model: str
 
 
-def _prompt(lead: dict) -> str:
+def _prompt(
+    lead: dict,
+    tom: str = "Consultivo",
+    servico: str = "Site / landing page",
+    observacao: str = "",
+) -> str:
     nome = os.getenv("PROSPECTOR_NAME", "João Pedro")
     empresa_remetente = os.getenv("BUSINESS_NAME", "JPX Lab")
     portfolio = os.getenv("PORTFOLIO_URL", "https://jpxlab.com.br")
@@ -29,60 +34,120 @@ def _prompt(lead: dict) -> str:
         "google_maps": lead.get("Google Maps"),
     }
     return f"""
-Você cria uma primeira abordagem comercial individual, respeitosa e não invasiva.
-Use SOMENTE os dados fornecidos. Não invente fatos, elogios, prêmios, problemas ou
-informações observadas em páginas que não foram efetivamente fornecidas.
+Você é um SDR consultivo da JPX Lab especializado em primeira abordagem para
+pequenos negócios locais. Seu objetivo NÃO é vender no primeiro contato: é mostrar
+que a mensagem foi pensada para aquele negócio e conquistar permissão para continuar.
+
+REGRA DE VERACIDADE
+Use somente os dados abaixo. Não diga que acessou Instagram, site, fotos, cardápio,
+agenda ou avaliações individuais. Não invente elogios, problemas, resultados ou
+características. Inferências devem ser apresentadas como possibilidade, nunca como fato.
 
 Dados do lead: {json.dumps(dados, ensure_ascii=False, default=str)}
+Observação manual confirmada pelo usuário: {observacao.strip() or "nenhuma"}
 Remetente: {nome}, da {empresa_remetente}
-Serviços: sites e landing pages, automações, integrações, design e dados.
+Serviço escolhido para esta abordagem: {servico}
+Tom escolhido: {tom}
 Portfólio: {portfolio}
 
-Retorne JSON válido com exatamente duas chaves:
-- "contexto": resumo factual de uma frase sobre a oportunidade;
-- "mensagem": WhatsApp em português brasileiro, 55 a 90 palavras.
+RACIOCÍNIO COMERCIAL
+1. Escolha UM único gancho factual mais forte. Exemplos: ausência de site próprio;
+   presença restrita a rede social; volume de avaliações que já gera prova social;
+   contexto local da cidade; ou a observação manual.
+2. Conecte esse gancho a UMA oportunidade coerente com o segmento e com o serviço.
+3. Fale do benefício para o cliente final do lead, não de tecnologia.
+4. Termine com uma pergunta fácil de responder, pedindo permissão para enviar uma
+   ideia curta. Não peça reunião, orçamento ou decisão no primeiro contato.
 
-A mensagem deve: apresentar o remetente; citar naturalmente empresa, segmento ou
-cidade; explicar uma oportunidade concreta sem atacar o negócio; pedir permissão
-para mostrar uma ideia; ter no máximo um link; não usar urgência falsa, promessa de
-resultado, texto genérico de spam ou mais de um emoji.
+ESTRUTURA OBRIGATÓRIA DA MENSAGEM
+- 45 a 75 palavras, em português brasileiro natural;
+- 3 ou 4 blocos curtos separados por linha em branco;
+- abertura humana e breve, variando entre as mensagens;
+- observação específica sobre o negócio;
+- ideia concreta em linguagem simples;
+- pergunta final de baixo atrito;
+- sem link de portfólio no primeiro contato, a menos que a observação peça isso.
+
+EVITE COMPLETAMENTE
+"encontrei ao pesquisar", "gostaria de oferecer", "trabalho com sites e automações",
+listas de serviços, jargão, urgência falsa, promessa de resultado, elogio genérico,
+"sem compromisso", mais de um ponto de exclamação e qualquer emoji.
+
+TOM
+- Consultivo: diagnóstico leve, calmo e respeitoso.
+- Direto: objetivo, frases curtas, sem introdução longa.
+- Conversacional: próximo e natural, sem informalidade excessiva.
+
+Retorne JSON válido com exatamente duas chaves:
+- "contexto": em até 2 frases, informe o gancho usado e por que ele é pertinente;
+- "mensagem": a mensagem pronta, preservando as quebras de linha.
 """.strip()
 
 
-def mensagem_fallback(lead: dict) -> MensagemGerada:
+def mensagem_fallback(
+    lead: dict,
+    tom: str = "Consultivo",
+    servico: str = "Site / landing page",
+    observacao: str = "",
+) -> MensagemGerada:
     nome = os.getenv("PROSPECTOR_NAME", "João Pedro")
     marca = os.getenv("BUSINESS_NAME", "JPX Lab")
-    portfolio = os.getenv("PORTFOLIO_URL", "https://jpxlab.com.br")
     empresa = str(lead.get("Empresa", "seu negócio"))
     segmento = str(lead.get("Segmento", "negócio local")).lower()
     cidade = str(lead.get("Cidade", "ABC Paulista"))
     tipo_site = str(lead.get("Tipo Site", "Não verificado"))
-    oportunidade = (
-        "uma presença digital própria para facilitar que clientes encontrem serviços e contatos"
-        if tipo_site == "Sem Site"
-        else "organizar melhor a presença digital e transformar visitas em contatos"
-    )
+    avaliacoes = int(lead.get("Avaliações", 0) or 0)
+    angulos = {
+        "Site / landing page": "centralizar serviços, diferenciais e contato em uma página própria",
+        "Automação de atendimento": "organizar o primeiro atendimento e reduzir perguntas repetidas no WhatsApp",
+        "Identidade visual": "deixar a apresentação visual mais consistente nos pontos de contato",
+        "Diagnóstico digital": "organizar a jornada entre a descoberta no Google e o contato pelo WhatsApp",
+    }
+    oportunidade = angulos.get(servico, angulos["Diagnóstico digital"])
+    if observacao.strip():
+        gancho = observacao.strip()
+        abertura = f"Notei um ponto específico sobre a {empresa}: {gancho.rstrip('.')}."
+    elif tipo_site == "Sem Site":
+        gancho = "a empresa aparece no Google, mas não há um site próprio registrado"
+        abertura = f"Vi a {empresa} no Google e não encontrei um site próprio reunindo as informações do negócio."
+    elif tipo_site == "Rede Social":
+        gancho = "a presença digital está concentrada em rede social"
+        abertura = f"Vi que a presença digital da {empresa} está concentrada em rede social."
+    else:
+        gancho = f"o negócio já reúne {avaliacoes} avaliações no Google"
+        abertura = f"A {empresa} já reúne uma presença relevante no Google, com {avaliacoes} avaliações."
+    introducoes = {
+        "Direto": f"Oi, tudo bem? Aqui é o {nome}, da {marca}.",
+        "Conversacional": f"Oi! Tudo certo por aí? Sou o {nome}, da {marca}.",
+        "Consultivo": f"Olá, tudo bem? Sou o {nome}, da {marca}.",
+    }
     mensagem = (
-        f"Olá! Sou {nome}, da {marca}. Encontrei a {empresa} ao pesquisar {segmento} "
-        f"em {cidade}. Trabalho com sites e automações para negócios locais e pensei em "
-        f"{oportunidade}. Posso te mostrar, sem compromisso, uma ideia rápida e específica "
-        f"para a {empresa}? Meu portfólio: {portfolio}"
+        f"{introducoes.get(tom, introducoes['Consultivo'])}\n\n"
+        f"{abertura}\n\n"
+        f"Pensei em uma forma simples de {oportunidade}, facilitando o próximo passo para quem já procura "
+        f"{segmento} em {cidade}. Posso te enviar uma ideia rápida aplicada à {empresa}?"
     )
     return MensagemGerada(
-        contexto=f"{empresa} é um negócio de {segmento} em {cidade}, classificado como {tipo_site}.",
+        contexto=f"Gancho usado: {gancho}. A oportunidade foi conectada a {servico.lower()} sem presumir informações não fornecidas.",
         mensagem=mensagem,
         provider="modelo local",
         model="fallback",
     )
 
 
-def gerar_mensagem(lead: dict, provider: str) -> MensagemGerada:
+def gerar_mensagem(
+    lead: dict,
+    provider: str,
+    tom: str = "Consultivo",
+    servico: str = "Site / landing page",
+    observacao: str = "",
+) -> MensagemGerada:
     provider = provider.lower().strip()
     if provider == "openai":
-        return _gerar_openai(lead)
+        return _gerar_openai(lead, tom, servico, observacao)
     if provider == "gemini":
-        return _gerar_gemini(lead)
-    return mensagem_fallback(lead)
+        return _gerar_gemini(lead, tom, servico, observacao)
+    return mensagem_fallback(lead, tom, servico, observacao)
 
 
 def _parse_json(texto: str) -> tuple[str, str]:
@@ -95,14 +160,14 @@ def _parse_json(texto: str) -> tuple[str, str]:
     return contexto, mensagem
 
 
-def _gerar_openai(lead: dict) -> MensagemGerada:
+def _gerar_openai(lead: dict, tom: str, servico: str, observacao: str) -> MensagemGerada:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise ValueError("OPENAI_API_KEY não configurada no .env.")
     model = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
     payload = post_json(
         "https://api.openai.com/v1/responses",
-        {"model": model, "input": _prompt(lead), "max_output_tokens": 500},
+        {"model": model, "input": _prompt(lead, tom, servico, observacao), "max_output_tokens": 500},
         {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         timeout=60,
     )
@@ -116,7 +181,7 @@ def _gerar_openai(lead: dict) -> MensagemGerada:
     return MensagemGerada(contexto, mensagem, "OpenAI", model)
 
 
-def _gerar_gemini(lead: dict) -> MensagemGerada:
+def _gerar_gemini(lead: dict, tom: str, servico: str, observacao: str) -> MensagemGerada:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise ValueError("GEMINI_API_KEY não configurada no .env.")
@@ -124,7 +189,7 @@ def _gerar_gemini(lead: dict) -> MensagemGerada:
     payload = post_json(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
         {
-            "contents": [{"parts": [{"text": _prompt(lead)}]}],
+            "contents": [{"parts": [{"text": _prompt(lead, tom, servico, observacao)}]}],
             "generationConfig": {"responseMimeType": "application/json"},
         },
         {"x-goog-api-key": api_key, "Content-Type": "application/json"},
