@@ -146,8 +146,11 @@ class Handler(BaseHTTPRequestHandler):
         body = self._body()
         key = str(body.get("lead_key", ""))
         provider = str(body.get("provider", "Modelo local"))
+        tom = str(body.get("tom", "Consultivo"))
+        servico = str(body.get("servico", "Site / landing page"))
+        observacao = str(body.get("observacao", ""))[:500]
         lead = self._encontrar(key)
-        gerada = gerar_mensagem(lead, provider)
+        gerada = gerar_mensagem(lead, provider, tom, servico, observacao)
         HISTORICO.salvar(
             key, lead["Empresa"], lead["Telefone E164"], "Rascunho",
             gerada.contexto, gerada.mensagem, gerada.provider, gerada.model,

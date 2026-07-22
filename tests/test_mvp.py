@@ -54,10 +54,14 @@ class TestMVP(unittest.TestCase):
         self.assertEqual(data["summary"]["fila"], 54)
         lead = data["items"][0]
         draft = self.post("/api/generate", {
-            "lead_key": lead["Chave"], "provider": "Modelo local"
+            "lead_key": lead["Chave"], "provider": "Modelo local",
+            "tom": "Direto", "servico": "Site / landing page",
+            "observacao": "O atendimento principal acontece pelo WhatsApp",
         })
         self.assertIn(lead["Empresa"], draft["mensagem"])
         self.assertEqual(draft["provider"], "modelo local")
+        self.assertIn("\n\n", draft["mensagem"])
+        self.assertNotIn("encontrei ao pesquisar", draft["mensagem"].lower())
         updated = self.post("/api/status", {
             "lead_key": lead["Chave"], "status": "Ignorado",
             "contexto": draft["contexto"], "mensagem": draft["mensagem"],
