@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JPX Lab • Prospecção</title>
+  <style>
+    :root{--bg:#08111f;--panel:#101c2e;--line:#22324b;--text:#edf4ff;--muted:#91a3bc;--blue:#4f8cff;--green:#2dd4a3;--red:#ff6b75;--amber:#ffc857}
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#07101c,#0b1628);color:var(--text);font:15px/1.45 Inter,system-ui,sans-serif}
+    header{padding:28px clamp(18px,4vw,56px);border-bottom:1px solid var(--line)}h1{margin:0;font-size:clamp(24px,4vw,38px)}header p{color:var(--muted);margin:6px 0 0}
+    main{padding:24px clamp(18px,4vw,56px);max-width:1500px;margin:auto}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card,.panel{background:rgba(16,28,46,.9);border:1px solid var(--line);border-radius:14px;padding:18px}.metric{font-size:28px;font-weight:750}.label,.muted{color:var(--muted)}
+    .toolbar{display:flex;gap:12px;align-items:end;margin:18px 0;flex-wrap:wrap}.toolbar label{display:grid;gap:6px;color:var(--muted)}select,input,textarea{background:#0a1424;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:10px 12px}button,.button{border:0;border-radius:9px;padding:11px 15px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;background:var(--blue);color:white}.secondary{background:#263853}.danger{background:#692d38}.success{background:#17684f}.grid{display:grid;grid-template-columns:minmax(380px,.9fr) minmax(420px,1.1fr);gap:16px}.list{max-height:610px;overflow:auto}.lead{padding:12px;border:1px solid transparent;border-bottom-color:var(--line);cursor:pointer}.lead:hover,.lead.active{background:#152743;border-color:#315078;border-radius:9px}.lead strong{display:block}.lead small{color:var(--muted)}.details{display:grid;grid-template-columns:1fr 1fr;gap:10px}.datum{background:#0b1728;padding:10px;border-radius:8px}.datum b{display:block;color:var(--muted);font-size:12px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}textarea{width:100%;resize:vertical;min-height:115px}.message{min-height:210px}.notice{padding:10px;border-radius:8px;background:#172b47;margin:10px 0}.error{background:#4a2028;color:#ffd7da}.ok{background:#123a31;color:#c8ffef}.hidden{display:none}.spinner{opacity:.55;pointer-events:none}
+    @media(max-width:900px){.cards{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr}.list{max-height:380px}}@media(max-width:520px){.cards{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<header><h1>Prospecção local assistida</h1><p>A IA prepara. Você revisa. O WhatsApp só abre depois da sua ação.</p></header>
+<main>
+  <section class="cards"><div class="card"><div class="label">Leads</div><div class="metric" id="total">—</div></div><div class="card"><div class="label">Celulares válidos</div><div class="metric" id="mobiles">—</div></div><div class="card"><div class="label">Fila atual</div><div class="metric" id="queue">—</div></div><div class="card"><div class="label">Contatos hoje</div><div class="metric" id="today">—</div></div></section>
+  <div class="toolbar"><label>Prioridade<select id="priority"><option>Alta</option><option>Média</option><option>Baixa</option></select></label><label>Presença digital<select id="type"><option>Sem Site</option><option>Rede Social</option><option>Site Próprio</option></select></label><label>Gerador<select id="provider"><option>Modelo local</option><option>OpenAI</option><option>Gemini</option></select></label><button class="secondary" onclick="loadLeads()">Atualizar fila</button></div>
+  <div id="notice" class="notice hidden"></div>
+  <section class="grid">
+    <div class="panel"><h2>Leads elegíveis</h2><div id="leadList" class="list"></div></div>
+    <div class="panel"><div id="empty" class="muted">Selecione um lead para começar.</div><div id="workspace" class="hidden"><h2 id="company"></h2><div class="details" id="details"></div><div class="actions"><a id="maps" class="button secondary" target="_blank" rel="noopener">Google Maps</a><button onclick="generateDraft()">Gerar rascunho</button></div><h3>Contexto factual</h3><textarea id="context"></textarea><h3>Mensagem revisável</h3><textarea id="message" class="message"></textarea><div class="actions"><a id="whatsapp" class="button success" target="_blank" rel="noopener">Abrir no WhatsApp</a><button class="secondary" onclick="setStatus('Contatado')">Marcar contatado</button><button class="secondary" onclick="setStatus('Ignorado')">Ignorar</button><button class="danger" onclick="setStatus('Bloqueado')">Bloquear</button></div><p class="muted">Abrir a conversa não envia a mensagem. Revise e toque em enviar no WhatsApp.</p></div></div>
+  </section>
+</main>
+<script>
+let leads=[], selected=null, generated={provider:'',model:''};
+const $=id=>document.getElementById(id); const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function notice(msg,error=false){const n=$('notice');n.textContent=msg;n.className='notice '+(error?'error':'ok');setTimeout(()=>n.classList.add('hidden'),5000)}
+async function api(path,opts={}){const r=await fetch(path,{headers:{'Content-Type':'application/json'},...opts});const j=await r.json();if(!r.ok)throw new Error(j.error||'Falha inesperada');return j}
+async function loadLeads(){try{const q=new URLSearchParams({prioridade:$('priority').value,tipo:$('type').value});const data=await api('/api/leads?'+q);leads=data.items;$('total').textContent=data.summary.total;$('mobiles').textContent=data.summary.celulares;$('queue').textContent=data.summary.fila;$('today').textContent=data.summary.contatos_hoje+'/'+data.summary.limite_diario;renderList();if(leads.length)selectLead(leads[0].Chave)}catch(e){notice(e.message,true)}}
+function renderList(){ $('leadList').innerHTML=leads.length?leads.map(l=>`<div class="lead ${selected&&selected.Chave===l.Chave?'active':''}" onclick='selectByKey(${JSON.stringify(l.Chave)})'><strong>${esc(l.Empresa)}</strong><small>${esc(l.Segmento)} • ${esc(l.Cidade)} • score ${esc(l.Score)} • ${esc(l['Status abordagem'])}</small></div>`).join(''):'<p class="muted">Nenhum lead nos filtros atuais.</p>'}
+function selectByKey(k){selectLead(leads.find(x=>x.Chave===k))}
+function selectLead(l){if(!l)return;selected=l;generated={provider:'',model:''};$('empty').classList.add('hidden');$('workspace').classList.remove('hidden');$('company').textContent=l.Empresa;$('details').innerHTML=[['Segmento',l.Segmento],['Cidade',l.Cidade],['Telefone',l.Telefone],['Avaliações',l.Avaliações],['Presença digital',l['Tipo Site']],['Prioridade / score',l.Prioridade+' / '+l.Score]].map(([a,b])=>`<div class="datum"><b>${esc(a)}</b>${esc(b)}</div>`).join('');$('maps').href=l['Google Maps']||'#';$('context').value='';$('message').value='';updateWhatsApp();renderList()}
+function updateWhatsApp(){if(!selected)return;const text=encodeURIComponent($('message').value);$('whatsapp').href=`https://wa.me/${selected['Telefone E164']}?text=${text}`}
+$('message').addEventListener('input',updateWhatsApp);
+async function generateDraft(){if(!selected)return;document.body.classList.add('spinner');try{const d=await api('/api/generate',{method:'POST',body:JSON.stringify({lead_key:selected.Chave,provider:$('provider').value})});$('context').value=d.contexto;$('message').value=d.mensagem;generated={provider:d.provider,model:d.model};updateWhatsApp();notice('Rascunho criado. Revise antes de abrir o WhatsApp.')}catch(e){notice(e.message,true)}finally{document.body.classList.remove('spinner')}}
+async function setStatus(status){if(!selected)return;try{await api('/api/status',{method:'POST',body:JSON.stringify({lead_key:selected.Chave,status,contexto:$('context').value,mensagem:$('message').value,...generated})});notice('Status atualizado: '+status);await loadLeads()}catch(e){notice(e.message,true)}}
+loadLeads();
+</script>
+</body></html>
