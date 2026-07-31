@@ -1,7 +1,7 @@
-"""Painel web local para prospecção assistida.
+"""Painel local de prospecção e CRM da JPX Lab.
 
-Execute com `python app.py` e abra http://127.0.0.1:8765.
-Nenhum endpoint deste servidor envia mensagens ao WhatsApp.
+Execute com ``python app.py`` e abra http://127.0.0.1:8765.
+O sistema prepara e registra abordagens, mas nunca envia mensagens sozinho.
 """
 
 from __future__ import annotations
@@ -29,7 +29,18 @@ if not LEADS_FILE.is_absolute():
     LEADS_FILE = BASE_DIR / LEADS_FILE
 DB_FILE = Path(os.getenv("HISTORY_DB", str(BASE_DIR / "data" / "prospeccao.db")))
 HISTORICO = Historico(DB_FILE)
-ALLOWED_STATUS = {"Rascunho", "Contatado", "Ignorado", "Bloqueado", "Respondeu", "Reunião"}
+
+ALLOWED_STATUS = {
+    "Rascunho",
+    "Contatado",
+    "Respondeu",
+    "Proposta",
+    "Negociação",
+    "Fechado",
+    "Perdido",
+    "Ignorado",
+    "Bloqueado",
+}
 
 
 def chave_lead(row: pd.Series | dict) -> str:
@@ -53,11 +64,14 @@ def limpar_valor(valor):
 
 
 def serializar_linhas(df: pd.DataFrame) -> list[dict]:
-    return [{k: limpar_valor(v) for k, v in row.items()} for row in df.to_dict("records")]
+    return [
+        {k: limpar_valor(v) for k, v in row.items()}
+        for row in df.to_dict("records")
+    ]
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "JPXProspeccao/1.0"
+    server_version = "JPXCRM/2.0"
 
     def log_message(self, fmt, *args):
         print(f"[{self.log_date_time_string()}] {fmt % args}")
@@ -95,12 +109,26 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/history":
                 self._json({"items": serializar_linhas(HISTORICO.dataframe())})
                 return
+            if parsed.path == "/api/followups":
+                self._json({"items": HISTORICO.followups_pendentes()})
+                return
+            if parsed.path == "/api/dashboard":
+                self._json(HISTORICO.resumo())
+                return
             if parsed.path == "/api/health":
-                self._json({"ok": True, "leads_file": LEADS_FILE.name})
+                self._json(
+                    {
+                        "ok": True,
+                        "version": "2.0",
+                        "leads_file": LEADS_FILE.name,
+                    }
+                )
                 return
             self._erro("Rota não encontrada.", HTTPStatus.NOT_FOUND)
         except FileNotFoundError:
-            self._erro(f"Planilha não encontrada: {LEADS_FILE}", HTTPStatus.NOT_FOUND)
+            self._erro(
+                f"Planilha não encontrada: {LEADS_FILE}", HTTPStatus.NOT_FOUND
+            )
         except Exception as exc:
             self._erro(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
 
@@ -124,7 +152,10 @@ class Handler(BaseHTTPRequestHandler):
         incluir = query.get("incluir_abordados", ["false"])[0] == "true"
         fila = filtrar_elegiveis(df, prioridades, tipos, cidades)
         if not incluir:
-            fila = fila[fila["Status abordagem"].isin(["Não abordado", "Rascunho"])]
+            fila = fila[
+                fila["Status abordagem"].isin(["Não abordado", "Rascunho"])
+            ]
+        crm = HISTORICO.resumo()
         resumo = {
             "total": len(df),
             "celulares": int(df["WhatsApp elegível"].sum()),
@@ -132,8 +163,16 @@ class Handler(BaseHTTPRequestHandler):
             "contatos_hoje": HISTORICO.contatos_hoje(),
             "limite_diario": int(os.getenv("DAILY_CONTACT_LIMIT", "10")),
             "arquivo": LEADS_FILE.name,
+            "propostas_abertas": crm["propostas_abertas"],
+            "fechados": crm["fechados"],
+            "receita_fechada": crm["receita_fechada"],
+            "followups": len(HISTORICO.followups_pendentes()),
         }
-        self._json({"summary": resumo, "items": serializar_linhas(fila)})
+        dados_crm = HISTORICO.dados_por_lead()
+        itens = serializar_linhas(fila)
+        for item in itens:
+            item["CRM"] = dados_crm.get(item["Chave"], {})
+        self._json({"summary": resumo, "items": itens})
 
     def _encontrar(self, key: str) -> dict:
         df = carregar_base()
@@ -147,20 +186,29 @@ class Handler(BaseHTTPRequestHandler):
         key = str(body.get("lead_key", ""))
         provider = str(body.get("provider", "Modelo local"))
         tom = str(body.get("tom", "Consultivo"))
-        servico = str(body.get("servico", "Site / landing page"))
+        servico = str(body.get("servico", "Landing Page Express"))
         observacao = str(body.get("observacao", ""))[:500]
         lead = self._encontrar(key)
         gerada = gerar_mensagem(lead, provider, tom, servico, observacao)
         HISTORICO.salvar(
-            key, lead["Empresa"], lead["Telefone E164"], "Rascunho",
-            gerada.contexto, gerada.mensagem, gerada.provider, gerada.model,
+            key,
+            lead["Empresa"],
+            lead["Telefone E164"],
+            "Rascunho",
+            gerada.contexto,
+            gerada.mensagem,
+            gerada.provider,
+            gerada.model,
+            servico=servico,
         )
-        self._json({
-            "contexto": gerada.contexto,
-            "mensagem": gerada.mensagem,
-            "provider": gerada.provider,
-            "model": gerada.model,
-        })
+        self._json(
+            {
+                "contexto": gerada.contexto,
+                "mensagem": gerada.mensagem,
+                "provider": gerada.provider,
+                "model": gerada.model,
+            }
+        )
 
     def _atualizar_status(self):
         body = self._body()
@@ -172,13 +220,37 @@ class Handler(BaseHTTPRequestHandler):
             limite = int(os.getenv("DAILY_CONTACT_LIMIT", "10"))
             if HISTORICO.contatos_hoje() >= limite:
                 raise ValueError("Limite diário de contatos atingido.")
+        valor = float(body.get("valor_proposta", 0) or 0)
+        if valor < 0:
+            raise ValueError("O valor da proposta não pode ser negativo.")
+        proxima_acao = str(body.get("proxima_acao", ""))[:10]
+        if proxima_acao:
+            try:
+                pd.Timestamp(proxima_acao)
+            except ValueError as exc:
+                raise ValueError("Data da próxima ação inválida.") from exc
         lead = self._encontrar(key)
         HISTORICO.salvar(
-            key, lead["Empresa"], lead["Telefone E164"], novo_status,
-            str(body.get("contexto", "")), str(body.get("mensagem", "")),
-            str(body.get("provider", "")), str(body.get("model", "")),
+            key,
+            lead["Empresa"],
+            lead["Telefone E164"],
+            novo_status,
+            str(body.get("contexto", "")),
+            str(body.get("mensagem", "")),
+            str(body.get("provider", "")),
+            str(body.get("model", "")),
+            servico=str(body.get("servico", ""))[:120],
+            valor_proposta=valor,
+            proxima_acao=proxima_acao,
+            notas=str(body.get("notas", ""))[:1500],
         )
-        self._json({"ok": True, "status": novo_status})
+        self._json(
+            {
+                "ok": True,
+                "status": novo_status,
+                "dashboard": HISTORICO.resumo(),
+            }
+        )
 
 
 def main():
@@ -188,7 +260,7 @@ def main():
         raise SystemExit(f"Interface não encontrada: {STATIC_FILE}")
     servidor = ThreadingHTTPServer((host, port), Handler)
     url = f"http://{host}:{port}"
-    print(f"Painel disponível em {url}")
+    print(f"CRM JPX Lab disponível em {url}")
     print("Pressione Ctrl+C para encerrar.")
     if os.getenv("OPEN_BROWSER", "1") == "1":
         webbrowser.open(url)
