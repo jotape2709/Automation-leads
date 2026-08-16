@@ -7,6 +7,7 @@ O sistema prepara e registra abordagens, mas nunca envia mensagens sozinho.
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 import webbrowser
 from http import HTTPStatus
@@ -71,28 +72,87 @@ def serializar_linhas(df: pd.DataFrame) -> list[dict]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "JPXCRM/2.0"
+    server_version = "JPXCRM"
+    sys_version = ""
 
     def log_message(self, fmt, *args):
         print(f"[{self.log_date_time_string()}] {fmt % args}")
+
+    def _security_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Security-Policy", (
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
+            "form-action 'none'"
+        ))
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
 
     def _json(self, payload, status=HTTPStatus.OK):
         body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self._security_headers()
         self.end_headers()
         self.wfile.write(body)
 
     def _body(self):
-        length = int(self.headers.get("Content-Length", "0"))
-        return json.loads(self.rfile.read(length) or b"{}")
+        tipo = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if tipo != "application/json":
+            raise ValueError("Content-Type deve ser application/json.")
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            limite = int(os.getenv("MAX_REQUEST_BODY_BYTES", "65536"))
+        except ValueError as exc:
+            raise ValueError("Tamanho de requisição inválido.") from exc
+        if length <= 0 or length > limite:
+            raise ValueError("Corpo da requisição vazio ou acima do limite.")
+        try:
+            return json.loads(self.rfile.read(length))
+        except json.JSONDecodeError as exc:
+            raise ValueError("Corpo JSON inválido.") from exc
 
     def _erro(self, mensagem, status=HTTPStatus.BAD_REQUEST):
         self._json({"error": mensagem}, status)
 
+    def _validar_origem(self):
+        try:
+            cliente = ipaddress.ip_address(self.client_address[0])
+        except ValueError:
+            self._erro("Origem de rede inválida.", HTTPStatus.FORBIDDEN)
+            return False
+        if not cliente.is_loopback:
+            self._erro("Acesso permitido apenas no computador local.", HTTPStatus.FORBIDDEN)
+            return False
+        host = urlparse(f"//{self.headers.get('Host', '')}").hostname
+        if host not in {"127.0.0.1", "localhost", "::1"}:
+            self._erro("Host não autorizado.", HTTPStatus.FORBIDDEN)
+            return False
+        origem = self.headers.get("Origin")
+        if origem:
+            parsed = urlparse(origem)
+            try:
+                porta_origem = parsed.port
+            except ValueError:
+                porta_origem = None
+            if (
+                parsed.scheme != "http"
+                or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+                or porta_origem != self.server.server_port
+            ):
+                self._erro("Origem não autorizada.", HTTPStatus.FORBIDDEN)
+                return False
+        return True
+
     def do_GET(self):
+        if not self._validar_origem():
+            return
         parsed = urlparse(self.path)
         try:
             if parsed.path == "/":
@@ -100,6 +160,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
+                self._security_headers()
                 self.end_headers()
                 self.wfile.write(body)
                 return
@@ -126,13 +187,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._erro("Rota não encontrada.", HTTPStatus.NOT_FOUND)
         except FileNotFoundError:
-            self._erro(
-                f"Planilha não encontrada: {LEADS_FILE}", HTTPStatus.NOT_FOUND
-            )
+            self._erro("Planilha de leads não encontrada.", HTTPStatus.NOT_FOUND)
+        except ValueError as exc:
+            self._erro(str(exc))
         except Exception as exc:
-            self._erro(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
+            print(f"Erro interno em GET: {type(exc).__name__}")
+            self._erro("Falha interna ao processar a solicitação.", HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def do_POST(self):
+        if not self._validar_origem():
+            return
         try:
             if self.path == "/api/generate":
                 self._gerar()
@@ -141,8 +205,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._atualizar_status()
                 return
             self._erro("Rota não encontrada.", HTTPStatus.NOT_FOUND)
+        except ValueError as exc:
+            self._erro(str(exc))
+        except RuntimeError as exc:
+            self._erro(str(exc), HTTPStatus.BAD_GATEWAY)
         except Exception as exc:
-            self._erro(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
+            print(f"Erro interno em POST: {type(exc).__name__}")
+            self._erro("Falha interna ao processar a solicitação.", HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def _listar_leads(self, query):
         df = carregar_base()
@@ -254,7 +323,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    host = os.getenv("APP_HOST", "127.0.0.1")
+    host = "127.0.0.1"
     port = int(os.getenv("APP_PORT", "8765"))
     if not STATIC_FILE.exists():
         raise SystemExit(f"Interface não encontrada: {STATIC_FILE}")

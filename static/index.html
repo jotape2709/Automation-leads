@@ -144,7 +144,7 @@
       <section class="panel workspace">
         <div id="empty" class="empty"><div><div class="empty-mark">X</div><strong>Escolha um lead</strong><p>Estratégia, mensagem e CRM aparecerão aqui.</p></div></div>
         <div id="content" class="hidden">
-          <div class="lead-head"><div><span class="eyebrow">LEAD SELECIONADO</span><h2 id="company"></h2><span class="muted" id="subtitle"></span></div><a id="maps" class="maps" target="_blank" rel="noopener">Google Maps ↗</a></div>
+          <div class="lead-head"><div><span class="eyebrow">LEAD SELECIONADO</span><h2 id="company"></h2><span class="muted" id="subtitle"></span></div><a id="maps" class="maps" target="_blank" rel="noopener noreferrer">Google Maps ↗</a></div>
           <div class="facts" id="facts"></div>
           <div class="workspace-grid">
             <div class="card">
@@ -155,7 +155,7 @@
                 <div class="field"><label>Oferta</label><select id="service"></select></div>
               </div>
               <div class="field"><label>Observação confirmada <span class="muted">(opcional)</span></label><textarea id="observation" class="observation" maxlength="500" placeholder="Ex.: o perfil está ativo, mas os serviços e o contato estão espalhados."></textarea></div>
-              <button class="generate" onclick="generateDraft()">Gerar abordagem personalizada</button>
+              <button id="generateDraft" class="generate">Gerar abordagem personalizada</button>
               <div class="editor-head"><h4>Contexto usado</h4></div><textarea id="context" class="context"></textarea>
               <div class="editor-head"><h4>Mensagem revisável</h4><span class="counter" id="counter">0 palavras</span></div><textarea id="message" class="message"></textarea>
             </div>
@@ -169,7 +169,7 @@
                   <div class="quality-item" id="q-spam"><span class="check">✓</span><span>Sem linguagem de disparo</span></div>
                 </div>
                 <div class="preview-label">Prévia do WhatsApp</div><div class="phone"><div id="bubble" class="bubble">Sua mensagem aparecerá aqui.</div></div>
-                <a id="whatsapp" class="send" target="_blank" rel="noopener">Abrir WhatsApp</a>
+                <a id="whatsapp" class="send" target="_blank" rel="noopener noreferrer">Abrir WhatsApp</a>
               </div>
               <div class="card crm">
                 <h3>Controle comercial</h3><div class="card-sub">Registre o próximo passo para não perder oportunidades.</div>
@@ -179,8 +179,8 @@
                   <div class="field full"><label>Próxima ação</label><input id="nextAction" type="date"></div>
                   <div class="field full"><label>Notas</label><textarea id="notes" maxlength="1500" placeholder="Resposta, objeção ou combinado."></textarea></div>
                 </div>
-                <button class="primary" onclick="saveCRM()">Salvar no funil</button>
-                <div class="actions"><button class="btn" onclick="setStatus('Contatado')">Contatado</button><button class="btn" onclick="copyMessage()">Copiar</button><button class="btn danger" onclick="setStatus('Bloqueado')">Bloquear</button></div>
+                <button id="saveCRM" class="primary">Salvar no funil</button>
+                <div class="actions"><button id="markContacted" class="btn">Contatado</button><button id="copyMessage" class="btn">Copiar</button><button id="blockLead" class="btn danger">Bloquear</button></div>
               </div>
             </aside>
           </div>
@@ -192,15 +192,16 @@
   <script>
     const OFFERS=["Diagnóstico Digital — R$ 49","Cartão Digital — R$ 49","Página de Links — R$ 59","Google Profissional — R$ 69","Kit Social Inicial — R$ 69","Logo Essencial — R$ 79","Planilha Essencial — R$ 79","Catálogo Digital — R$ 89","E-mail Profissional — R$ 89","Landing Page Express — R$ 149","Dashboard Express — R$ 149","Automação Essencial — R$ 149","Site Institucional — R$ 249","Presença Completa — R$ 249"];
     let leads=[],selected=null,generated={provider:"",model:""};const $=id=>document.getElementById(id);
-    const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-    $("service").innerHTML=OFFERS.map(x=>`<option>${esc(x)}</option>`).join("");
+    for(const offer of OFFERS){const option=document.createElement("option");option.textContent=offer;$("service").append(option)}
     function notice(msg,error=false){const n=$("notice");n.textContent=msg;n.className="notice "+(error?"error":"");n.classList.remove("hidden");clearTimeout(window.noteTimer);window.noteTimer=setTimeout(()=>n.classList.add("hidden"),4800)}
     async function api(path,opts={}){const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts});const j=await r.json();if(!r.ok)throw new Error(j.error||"Falha inesperada");return j}
     const money=n=>Number(n||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
     async function loadLeads(){try{const q=new URLSearchParams({prioridade:$("priority").value,tipo:$("type").value,incluir_abordados:String($("includeContacted").checked)});const d=await api("/api/leads?"+q);leads=d.items;$("queue").textContent=d.summary.fila;$("today").textContent=d.summary.contatos_hoje+"/"+d.summary.limite_diario;$("followups").textContent=d.summary.followups;$("proposals").textContent=d.summary.propostas_abertas;$("closed").textContent=d.summary.fechados;$("revenue").textContent=money(d.summary.receita_fechada);$("leadCount").textContent=leads.length;renderList();if(leads.length)selectLead(leads[0]);else{$("empty").classList.remove("hidden");$("content").classList.add("hidden")}}catch(e){notice(e.message,true)}}
-    function renderList(){$("leadList").innerHTML=leads.length?leads.map(l=>`<article class="lead ${selected&&selected.Chave===l.Chave?"active":""}" onclick='selectByKey(${JSON.stringify(l.Chave)})'><strong>${esc(l.Empresa)}</strong><small>${esc(l.Segmento)} • ${esc(l.Cidade)}</small><div class="badges"><span class="badge">${esc(l["Tipo Site"])}</span><span class="badge score">Score ${esc(l.Score)}</span><span class="badge status">${esc(l["Status abordagem"])}</span></div></article>`).join(""):'<p class="muted">Nenhum lead corresponde aos filtros.</p>'}
+    function element(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=String(text??"");return node}
+    function renderList(){const list=$("leadList");list.replaceChildren();if(!leads.length){list.append(element("p","muted","Nenhum lead corresponde aos filtros."));return}for(const lead of leads){const card=element("article","lead"+(selected&&selected.Chave===lead.Chave?" active":""));const name=element("strong","",lead.Empresa);const detail=element("small","",lead.Segmento+" • "+lead.Cidade);const badges=element("div","badges");badges.append(element("span","badge",lead["Tipo Site"]),element("span","badge score","Score "+lead.Score),element("span","badge status",lead["Status abordagem"]));card.append(name,detail,badges);card.addEventListener("click",()=>selectByKey(lead.Chave));list.append(card)}}
     function selectByKey(k){selectLead(leads.find(x=>x.Chave===k))}
-    function selectLead(l){if(!l)return;selected=l;generated={provider:"",model:""};$("empty").classList.add("hidden");$("content").classList.remove("hidden");$("company").textContent=l.Empresa;$("subtitle").textContent=l.Segmento+" em "+l.Cidade;$("maps").href=l["Google Maps"]||"#";$("facts").innerHTML=[["Telefone",l.Telefone],["Avaliações",l.Avaliações],["Presença",l["Tipo Site"]],["Prioridade",l.Prioridade],["Score",l.Score],["Status",l["Status abordagem"]]].map(([a,b])=>`<div class="fact"><b>${esc(a)}</b>${esc(b)}</div>`).join("");const crm=l.CRM||{};$("context").value=crm.contexto||"";$("message").value=crm.mensagem||"";$("notes").value=crm.notas||"";$("nextAction").value=crm.proxima_acao||"";$("proposalValue").value=crm.valor_proposta||"";$("crmStatus").value=crm.status||"Rascunho";if(crm.servico&&OFFERS.includes(crm.servico))$("service").value=crm.servico;$("observation").value="";updateMessage();renderList()}
+    function safeMapsUrl(value){try{const url=new URL(String(value||""));const allowed=url.protocol==="https:"&&(url.hostname==="maps.app.goo.gl"||url.hostname==="www.google.com"||url.hostname==="google.com"||url.hostname.endsWith(".google.com"));return allowed?url.href:"#"}catch{return"#"}}
+    function selectLead(l){if(!l)return;selected=l;generated={provider:"",model:""};$("empty").classList.add("hidden");$("content").classList.remove("hidden");$("company").textContent=l.Empresa;$("subtitle").textContent=l.Segmento+" em "+l.Cidade;$("maps").href=safeMapsUrl(l["Google Maps"]);const facts=$("facts");facts.replaceChildren();for(const [label,value] of [["Telefone",l.Telefone],["Avaliações",l.Avaliações],["Presença",l["Tipo Site"]],["Prioridade",l.Prioridade],["Score",l.Score],["Status",l["Status abordagem"]]]){const item=element("div","fact");item.append(element("b","",label),document.createTextNode(String(value??"")));facts.append(item)}const crm=l.CRM||{};$("context").value=crm.contexto||"";$("message").value=crm.mensagem||"";$("notes").value=crm.notas||"";$("nextAction").value=crm.proxima_acao||"";$("proposalValue").value=crm.valor_proposta||"";$("crmStatus").value=crm.status||"Rascunho";if(crm.servico&&OFFERS.includes(crm.servico))$("service").value=crm.servico;$("observation").value="";updateMessage();renderList()}
     function updateMessage(){if(!selected)return;const m=$("message").value.trim();const words=m?m.split(/\s+/).length:0;$("counter").textContent=words+" palavras";$("bubble").textContent=m||"Sua mensagem aparecerá aqui.";$("whatsapp").href=`https://wa.me/${selected["Telefone E164"]}?text=${encodeURIComponent(m)}`;quality(m,words)}
     function quality(m,w){const lower=m.toLowerCase();$("q-context").classList.toggle("ok",!!m&&(lower.includes(selected.Empresa.toLowerCase().split(" ")[0])||lower.includes(selected.Cidade.toLowerCase())));$("q-size").classList.toggle("ok",w>=45&&w<=75);$("q-question").classList.toggle("ok",m.trim().endsWith("?"));$("q-spam").classList.toggle("ok",!!m&&!["gostaria de oferecer","sem compromisso","promoção imperdível","garantimos"].some(x=>lower.includes(x)))}
     $("message").addEventListener("input",updateMessage);["priority","type","includeContacted"].forEach(id=>$(id).addEventListener("change",loadLeads));
@@ -209,6 +210,7 @@
     async function saveCRM(){if(!selected)return;try{const s=$("crmStatus").value;await api("/api/status",{method:"POST",body:JSON.stringify(payload(s))});notice("Funil atualizado: "+s);await loadLeads()}catch(e){notice(e.message,true)}}
     async function setStatus(status){if(!selected)return;$("crmStatus").value=status;await saveCRM()}
     async function copyMessage(){const m=$("message").value;if(!m)return notice("Gere ou escreva uma mensagem primeiro.",true);await navigator.clipboard.writeText(m);notice("Mensagem copiada.")}
+    $("generateDraft").addEventListener("click",generateDraft);$("saveCRM").addEventListener("click",saveCRM);$("markContacted").addEventListener("click",()=>setStatus("Contatado"));$("copyMessage").addEventListener("click",copyMessage);$("blockLead").addEventListener("click",()=>setStatus("Bloqueado"));
     loadLeads();
   </script>
 </body>
