@@ -1,0 +1,23 @@
+[package]
+name = "jpx-crm"
+version = "3.2.0"
+edition = "2021"
+authors = ["João Pedro de Moura Lima"]
+description = "Motor nativo otimizado em Rust que orquestra e consome o pipeline comercial, Cofre Criptográfico AEAD e CRM Python da JPX Lab"
+license = "MIT"
+readme = "README.md"
+
+[[bin]]
+name = "jpx-crm"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[dependencies]
+# Zero dependências externas: construído 100% sobre a biblioteca padrão do Rust (std)
+# para máxima segurança, compilação instantânea e auditoria limpa.

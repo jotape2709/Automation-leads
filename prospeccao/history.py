@@ -171,6 +171,14 @@ class Historico:
             ).fetchall()
         return {linha["lead_key"]: dict(linha) for linha in linhas}
 
+    def eventos_por_lead(self, lead_key: str) -> list[dict]:
+        with self._conectar() as conexao:
+            linhas = conexao.execute(
+                "SELECT id, lead_key, status, criado_em FROM eventos WHERE lead_key = ? ORDER BY id DESC LIMIT 25",
+                (lead_key,),
+            ).fetchall()
+        return [dict(linha) for linha in linhas]
+
     def contatos_hoje(self) -> int:
         inicio = date.today().isoformat()
         with self._conectar() as conexao:
@@ -194,6 +202,11 @@ class Historico:
                     "SELECT COALESCE(SUM(valor_proposta), 0) FROM contatos WHERE status='Fechado'"
                 ).fetchone()[0]
             )
+            pipeline_aberto = float(
+                conexao.execute(
+                    "SELECT COALESCE(SUM(valor_proposta), 0) FROM contatos WHERE status IN ('Proposta', 'Negociação')"
+                ).fetchone()[0]
+            )
             propostas = int(status.get("Proposta", 0) + status.get("Negociação", 0))
             fechados = int(status.get("Fechado", 0))
             oportunidades = sum(
@@ -205,6 +218,7 @@ class Historico:
             "fechados": fechados,
             "oportunidades": oportunidades,
             "receita_fechada": receita,
+            "pipeline_aberto": pipeline_aberto,
         }
 
     def followups_pendentes(self) -> list[dict]:

@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT))
 _tmp = tempfile.TemporaryDirectory()
 _leads = Path(_tmp.name) / "leads.xlsx"
 _db = Path(_tmp.name) / "test.db"
+_vault = Path(_tmp.name) / "test_vault.enc"
+_vault_key = Path(_tmp.name) / ".test_vault.key"
 
 pd.DataFrame([
     {
@@ -37,6 +39,8 @@ pd.DataFrame([
 
 os.environ["LEADS_FILE"] = str(_leads)
 os.environ["HISTORY_DB"] = str(_db)
+os.environ["VAULT_FILE"] = str(_vault)
+os.environ["VAULT_KEY_FILE"] = str(_vault_key)
 os.environ["OPEN_BROWSER"] = "0"
 
 import app
@@ -77,10 +81,12 @@ class TestMVP(unittest.TestCase):
         self.assertEqual(data["summary"]["fila"], 1)
         self.assertEqual(headers["X-Frame-Options"], "DENY")
         lead = data["items"][0]
+        self.assertEqual(len(lead["Score detalhes"]), 3)
         draft = self.post("/api/generate", {
             "lead_key": lead["Chave"], "provider": "Modelo local",
             "tom": "Direto", "servico": "Landing Page Express — R$ 149",
             "observacao": "O atendimento principal acontece pelo WhatsApp",
+            "etapa": "Primeiro contato",
         })
         self.assertIn(lead["Empresa"], draft["mensagem"])
         self.assertEqual(draft["provider"], "modelo local")
@@ -89,6 +95,44 @@ class TestMVP(unittest.TestCase):
             "contexto": draft["contexto"], "mensagem": draft["mensagem"],
         })
         self.assertTrue(updated["ok"])
+        from urllib.parse import quote
+        eventos, _ = self.get(f"/api/lead-events?lead_key={quote(lead['Chave'])}")
+        self.assertGreaterEqual(len(eventos["items"]), 1)
+
+    def test_cofre_api_settings_e_rotacao(self):
+        info, _ = self.get("/api/settings")
+        self.assertIn("credenciais", info)
+        self.assertIn("csrf_token", info)
+        chave_ficticia = "sk-" + ("abcdef12" * 3)
+        salvo = self.post("/api/settings", {
+            "OPENAI_API_KEY": chave_ficticia,
+            "DEFAULT_AI_PROVIDER": "OpenAI",
+            "DEFAULT_TONE": "Direto",
+            "DAILY_CONTACT_LIMIT": "12",
+        })
+        self.assertTrue(salvo["ok"])
+        self.assertTrue(salvo["settings"]["credenciais"]["OPENAI_API_KEY"]["configurada"])
+        self.assertNotIn(
+            "abcdef12abcdef12",
+            salvo["settings"]["credenciais"]["OPENAI_API_KEY"]["mascara"],
+        )
+        rot = self.post("/api/vault/rotate", {})
+        self.assertTrue(rot["ok"])
+
+    def test_z_adicionar_lead_manual_e_health(self):
+        health, _ = self.get("/api/health")
+        self.assertTrue(health["ok"])
+        self.assertEqual(health["engine"], "hybrid-rust-python")
+        res = self.post("/api/leads/add", {
+            "empresa": "Clínica Sorriso Real",
+            "segmento": "Odontologia",
+            "cidade": "São Caetano do Sul",
+            "telefone": "(11) 97777-6666",
+            "avaliacoes": 110,
+            "website": "",
+        })
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["lead"]["Score"], 80)
 
     def test_rejeita_content_type_incorreto(self):
         with self.assertRaises(HTTPError) as erro:

@@ -20,7 +20,7 @@ PADROES = {
 
 EXTENSOES_BLOQUEADAS = {
     ".xlsx", ".xls", ".csv", ".parquet", ".db", ".sqlite", ".sqlite3",
-    ".pem", ".key", ".p12", ".pfx", ".log",
+    ".pem", ".key", ".p12", ".pfx", ".log", ".enc", ".vault",
 }
 
 

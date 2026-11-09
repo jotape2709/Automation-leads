@@ -185,25 +185,30 @@ def exportar_excel(df: pd.DataFrame, arquivo: str | Path) -> Path:
     with pd.ExcelWriter(destino, engine="openpyxl") as writer:
         exportacao.to_excel(writer, sheet_name="Leads", index=False)
         aba = writer.book["Leads"]
-        cabecalho = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+        cabecalho = PatternFill(start_color="B80D23", end_color="B80D23", fill_type="solid")
         for cell in aba[1]:
             cell.fill = cabecalho
-            cell.font = Font(bold=True)
+            cell.font = Font(bold=True, color="FFD426")
         aba.freeze_panes = "A2"
         aba.auto_filter.ref = aba.dimensions
     return destino
 
 
 def main() -> None:
-    api_key = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
+    from prospeccao.vault import CofreCredenciais
+
+    cofre = CofreCredenciais()
+    api_key = cofre.obter("GOOGLE_PLACES_API_KEY", "").strip()
     if not api_key:
-        raise SystemExit("Configure GOOGLE_PLACES_API_KEY no arquivo .env antes da coleta.")
-    if os.getenv("GOOGLE_PLACES_ENABLED", "0").strip() != "1":
         raise SystemExit(
-            "Defina GOOGLE_PLACES_ENABLED=1 após revisar cotas, cobrança e "
+            "Configure GOOGLE_PLACES_API_KEY no Cofre Criptográfico (aba Configurações do painel) ou no arquivo .env antes da coleta."
+        )
+    if cofre.obter("GOOGLE_PLACES_ENABLED", "0").strip() != "1":
+        raise SystemExit(
+            "Defina GOOGLE_PLACES_ENABLED=1 (ou habilite na aba Configurações do painel) após revisar cotas, cobrança e "
             "restrições da chave no Google Cloud."
         )
-    max_requisicoes = _inteiro_positivo("MAX_PLACES_REQUESTS", 60)
+    max_requisicoes = int(cofre.obter("MAX_PLACES_REQUESTS", "60") or 60)
     intervalo = _intervalo_seguro()
     arquivo = os.getenv("LEADS_FILE", "Leads_ABC_Paulista.xlsx")
     print(f"🚀 Iniciando coleta com limite de {max_requisicoes} requisições")

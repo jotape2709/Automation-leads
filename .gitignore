@@ -22,6 +22,10 @@ secrets/
 credentials/
 *.pem
 *.key
+*.enc
+*.vault
 *credentials*.json
 *service-account*.json
 .DS_Store
+target/
+
